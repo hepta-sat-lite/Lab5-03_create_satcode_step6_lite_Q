@@ -1,17 +1,18 @@
 #include "mbed.h"
-#include "HEPTA_EPS.h"
-#include "HEPTA_CDH.h"
-#include "HEPTA_SENSOR.h"
-#include "HEPTA_COM.h"
-HEPTA_CDH cdh(PB_5, PB_4, PB_3, PA_8, "sd");
-HEPTA_EPS eps(PA_0,PA_4);
-HEPTA_SENSOR sensor(PA_7,PB_7,PB_6,0xD0);
-HEPTA_COM com(PA_9,PA_10,9600);
-DigitalOut condition(PB_1);
-RawSerial sat(USBTX,USBRX, 38400);
+#include "LITE_CDH.h"
+#include "LITE_EPS.h"
+#include "LITE_SENSOR.h"
+#include "LITE_COM.h"
+LITE_CDH cdh(PB_5, PB_4, PB_3, PA_8, "sd", PA_3);
+LITE_EPS eps(PA_0,PA_4);
+LITE_SENSOR sensor(PA_7,PB_7,PB_6);
+LITE_COM com(PA_9,PA_10,9600);
+DigitalOut cond[]={PB_1, PA_5};
+RawSerial sat(USBTX,USBRX,9600);
 Timer sattime;
-int main()
-{
+int rcmd = 0,cmdflag = 0; //command variable
+
+int main() {
     sat.printf("From Sat : Nominal Operation\r\n");
     com.printf("From Sat : Nominal Operation\r\n");
     int flag = 0; //condition flag
@@ -19,21 +20,21 @@ int main()
     int rcmd=0,cmdflag=0;  //command variable
     sattime.start();
     eps.turn_on_regulator();//turn on 3.3V conveter
-    sensor.setup();  
-    for(int i=0;i<50;i++){
-        com.xbee_receive(&rcmd,&cmdflag);
+    cdh.turn_on_analogSW();//turn on transceiver
+    for(int i = 0; i < 100; i++) {
+        com.xbee_receive(&rcmd,&cmdflag);//interupting by ground station command
         
         //satellite condition led
-        condition = !condition;
+        cond[0] = !cond[0];
         
-        //senssing HK data
+        //senssing HK data(dummy data)
         eps.vol(&batvol);
         sensor.temp_sense(&temp);
         
         //Transmitting HK data to Ground Station(GS)
-        com.printf("HEPTASAT::Condition = %d, Time = %f [s], batvol = %2f [V], temp = %2f [deg C]\r\n",flag,sattime.read(),batvol,temp);
+        com.printf("HEPTASAT::Condition = %d, Time = %f [s], batVol = %.2f [V],Temp = %.2f [C]\r\n",flag,sattime.read(),batvol,temp);
         wait_ms(1000);
-        
+                
         //Power Saving Mode 
         if((batvol <= 3.5)  | (temp > 35.0)){
             eps.shut_down_regulator();
@@ -44,62 +45,62 @@ int main()
             com.printf("Power saving mode OFF\r\n");
             flag = 0;
         }
-        
-        if(cmdflag == 1){
-            if(rcmd == 'a'){
+        //Contents of command
+        if (cmdflag == 1) {
+            if (rcmd == 'a') {
                 sat.printf("rcmd=%c,cmdflag=%d\r\n",rcmd,cmdflag);
                 com.printf("Hepta-Sat Lite Uplink Ok\r\n");
                 for(int j=0;j<5;j++){
                     com.printf("Hello World!\r\n");
-                    condition = 1;
+                    cond[0] = 1;
                     wait_ms(1000);
                 }
-            }else if(rcmd == 'b') {
+            }else if (rcmd == 'b') {
                 sat.printf("rcmd=%c,cmdflag=%d\r\n",rcmd,cmdflag);
                 com.printf("Hepta-Sat Lite Uplink Ok\r\n");
+                wait(1);
                 char str[100];
                 mkdir("/sd/mydir", 0777);
-                FILE *fp = fopen("/sd/mydir/satdata.txt","w");
+                FILE *fp = fopen("/sd/mydir/test.txt","w");
                 if(fp == NULL) {
                     error("Could not open file for write\r\n");
                 }
                 for(int i = 0; i < 10; i++) {
                     eps.vol(&batvol);
                     fprintf(fp,"%f\r\n",batvol);
-                    condition = 1;
-                    wait_ms(1000);
                 }
                 fclose(fp);
-                fp = fopen("/sd/mydir/satdata.txt","r");
-                for(int i = 0; i < 10; i++) {
+                fp = fopen("/sd/mydir/test.txt","r");
+                for(int j = 0; j < 10; j++) {
                     fgets(str,100,fp);
                     com.puts(str);
                 }
-                fclose(fp);
-            }else if(rcmd == 'c'){
+                fclose(fp);                
+            }else if (rcmd == 'c') {        
                 sat.printf("rcmd=%c,cmdflag=%d\r\n",rcmd,cmdflag);
                 com.printf("Hepta-Sat Lite Uplink Ok\r\n");
                 float ax,ay,az;
-                for(int i = 0; i < 10; i++) {
+                sensor.set_up();
+                for(int i = 0; i<10; i++){
                     sensor.sen_acc(&ax,&ay,&az);
-                    com.printf("%f,%f,%f\r\n",ax,ay,az);
-                    wait_ms(1000); 
+                    com.printf("acc : %f,%f,%f\r\n",ax,ay,az);
+                    wait_ms(1000);
                 }
-            }else if(rcmd == 'd'){
+            }else if (rcmd == 'd') {
                 sat.printf("rcmd=%c,cmdflag=%d\r\n",rcmd,cmdflag);
                 com.printf("Hepta-Sat Lite Uplink Ok\r\n");
                 float gx,gy,gz;
-                for(int i = 0; i < 10; i++) {
+                sensor.set_up();
+                for(int i = 0; i<10; i++) {
                     sensor.sen_gyro(&gx,&gy,&gz);
-                    com.printf("%f,%f,%f\r\n",gx,gy,gz); 
-                    wait_ms(1000);   
-                }            
-            }else if(rcmd == 'e'){
-                
-                
-                
+                    com.printf("gyro: %f,%f,%f\r\n",gx,gy,gz);
+                    wait_ms(1000);
+                }
+            }else if (rcmd == 'e') {
+                //Please insert your answer
+
             }
-            com.initialize(); //initializing
+            com.initialize();
         }
     }
     sattime.stop();
